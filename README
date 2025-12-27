@@ -1,0 +1,3 @@
+# Oblivion RP
+
+D&D play-by-text web app (PWA later). Built with a Node/Express backend, SQLite, WebSockets, and a React frontend.
