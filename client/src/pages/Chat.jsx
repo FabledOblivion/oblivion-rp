@@ -20,41 +20,57 @@ function Chat() {
       }
     }
     fetchMessages();
+  }, [id]);
 
-    const wsUrl = `${window.location.origin.replace('http', 'ws')}/?campaignId=${id}`;
-    const ws = new WebSocket(wsUrl);
+  useEffect(() => {
+    const protocolWsUrl = window.location.origin.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${protocolWsUrl}/?campaignId=${id}`);
+    wsRef.current = ws;
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data);
-        setMessages((prev) => [...prev, msg]);
+        const payload = JSON.parse(event.data);
+        // payload is a message object
+        setMessages((prev) => [...prev, payload]);
       } catch (err) {
-        console.error('Bad message', err);
+        console.error('WS message parse error', err);
       }
     };
-    wsRef.current = ws;
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+    };
     return () => {
       ws.close();
     };
   }, [id]);
 
-  const sendMessage = async (e) => {
+  const send = async (e) => {
     e.preventDefault();
     const text = input.trim();
     if (!text) return;
     setInput('');
-    if (text.startsWith('/roll')) {
-      const expression = text.replace('/roll', '').trim();
-      await fetch(`/api/campaigns/${id}/roll`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expression }),
-      });
-    } else {
-      await fetch(`/api/campaigns/${id}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: text }),
-      });
+    try {
+      if (text.startsWith('/roll')) {
+        const command = text.replace(/^\/roll\s*/, '');
+        const res = await fetch(`/api/campaigns/${id}/roll`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command }),
+        });
+        if (!res.ok) {
+          alert('Roll failed');
+        }
+      } else {
+        const res = await fetch(`/api/campaigns/${id}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text }),
+        });
+        if (!res.ok) {
+          alert('Send failed');
+        }
+      }
+    } catch (err) {
+      console.error('Error sending message', err);
     }
   };
 
@@ -62,22 +78,32 @@ function Chat() {
     <div style={{ padding: '2rem' }}>
       <h1>Campaign Chat</h1>
       <div
-        style={{ border: '1px solid #ccc', height: '300px', overflowY: 'auto', marginBottom: '1rem', padding: '0.5rem' }}
+        style={{
+          maxHeight: '60vh',
+          overflowY: 'auto',
+          border: '1px solid #ccc',
+          padding: '1rem',
+          marginBottom: '1rem',
+        }}
       >
-        {messages.map((m, index) => (
-          <div key={index}>
-            {m.type === 'roll'
-              ? `[Roll ${m.result}: ${m.expression}]`
-              : m.content}
+        {messages.map((msg) => (
+          <div key={msg.id ?? Math.random()}>
+            {msg.type === 'roll' ? (
+              <div>
+                <strong>Roll:</strong> {msg.message} {msg.result ? `(Total: ${msg.result.total})` : ''}
+              </div>
+            ) : (
+              <div>{msg.message}</div>
+            )}
           </div>
         ))}
       </div>
-      <form onSubmit={sendMessage} style={{ display: 'flex', gap: '0.5rem' }}>
+      <form onSubmit={send}>
         <input
+          style={{ width: '80%' }}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message or /roll 1d20+5"
-          style={{ flex: 1 }}
+          placeholder="Type a message or /roll ..."
         />
         <button type="submit">Send</button>
       </form>
