@@ -8,6 +8,8 @@ const http = require('http');
 const app = express();
 app.use(express.json());
 app.use(cookieParser());
+app.use(require('./routes/characters'));
+
 
 const port = process.env.PORT || 3000;
 const devAuth = process.env.DEV_AUTH === 'true';
