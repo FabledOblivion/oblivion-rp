@@ -1,42 +1,88 @@
 # Oblivion RP
 
-This is the repository for Oblivion RP – a local first D&D play by text web app. The project is split into a Node/Express backend and a Vite/React frontend using SQLite for storage and WebSockets for real time chat.
+Oblivion RP is a local‑first role‑playing application for tabletop campaigns. It uses a Node/Express backend with SQLite and WebSockets and a Vite/React frontend. The goal is to provide persistent campaigns, chat, dice rolling, characters and campaign management all in one repository.
 
 ## Packages
 
-- **server** – Express API with better sqlite3, Google Sign‑In verification and WebSocket chat.
-- **client** – Vite + React frontend with simple routing and WebSocket client.
+- **server** – Express API using SQLite (better‑sqlite3) with Google Sign‑In verification, optional DEV_AUTH bypass, campaign/character management, and WebSockets for chat.
+- **client** – Vite + React single‑page app that communicates with the backend via REST and WebSockets.
 
-## Getting started (local)
+## Quickstart (optional)
 
-1. Install dependencies and set up the workspace:
+You do not need to run the project locally to contribute or build. CI installs dependencies, builds the client and server, and runs a basic test suite. If you do want to run it:
 
-```bash
+````bash
 npm install
-```
-
-2. Copy `.env.example` to `.env` and provide your own values for the environment variables.
-
-3. Start the development servers:
-
-```bash
-npm run dev
-```
-
-This runs both the backend and frontend concurrently. The client proxies API requests to the backend during development.
+cp server/.env.example server/.env
+cp client/.env.example client/.env
+# fill in environment variables (.env files are ignored by git)
+npm run dev    # runs client and server concurrently
+````
 
 ## Environment variables
 
-At minimum you will need the following variables:
+Do **not** commit secrets – only commit `.env.example` files. Copy these files to `.env` locally to run.
 
-- `PORT` – port for the server (default `3000`).
-- `GOOGLE_CLIENT_ID` – Google Sign In client ID used on both client and server.
-- `DEV_AUTH` – when set to `true` the backend will accept any user for development and CI.
-- `SESSION_SECRET` – secret used to sign session cookies.
-- `VITE_GOOGLE_CLIENT_ID` – same as `GOOGLE_CLIENT_ID` but prefixed for the Vite client.
+### server/.env.example
 
-For CI, you can enable `DEV_AUTH=true` so that authentication is bypassed.
+````
+PORT=3000
+CLIENT_ORIGIN=http://localhost:5173
+GOOGLE_CLIENT_ID=your_google_client_id_here
+SESSION_SECRET=some_random_string
+DEV_AUTH=true
+````
 
-## Project Overview
+- **PORT**: port for the Express server.
+- **CLIENT_ORIGIN**: comma‑separated allowed origins for CORS and cookies.
+- **GOOGLE_CLIENT_ID**: OAuth client ID used to verify Google ID tokens.
+- **SESSION_SECRET**: secret for signing cookies.
+- **DEV_AUTH**: when `true`, authentication is bypassed and every request is treated as a dev user. This should be used only in CI or local development.
 
-The backend exposes REST endpoints under `/api` for health checks, authentication, user info, campaigns, messages and dice rolls. It also upgrades WebSocket connections for campaign chat. The frontend provides a basic UI with login, campaign list/creation/joining and a chat screen. Dice rolls are parsed on the server and stored alongside chat messages. An invite code allows other users to join campaigns.
+### client/.env.example
+
+````
+VITE_GOOGLE_CLIENT_ID=your_google_client_id_here
+````
+
+Used by the Google sign‑in button.
+
+## API endpoints
+
+All endpoints require authentication unless noted (DEV_AUTH bypasses this). Responses follow `{ ok: boolean, data?: any, error?: string }` pattern.
+
+- `GET /api/health` – return `{ status: 'ok' }`.
+- `POST /api/auth/google` – body: `{ idToken }`; verifies Google ID token (or uses DEV_AUTH) and sets session cookie.
+- `GET /api/me` – returns current user.
+- `POST /api/logout` – clears session cookie.
+- `GET /api/campaigns` – list campaigns the user is a member of.
+- `POST /api/campaigns` – body: `{ name, description, ruleset }`; creates a campaign, default ruleset `custom`.
+- `POST /api/campaigns/join` – body: `{ invite_code }`; join by invite code.
+- `GET /api/campaigns/:id/messages` – list last 100 messages in campaign.
+- `POST /api/campaigns/:id/messages` – body: `{ message }`; send chat message.
+- `POST /api/campaigns/:id/roll` – body: `{ command }`; roll dice (e.g. `1d20+5`).
+- `GET /api/campaigns/:id/characters` – list characters in a campaign (GM sees all).
+- `POST /api/campaigns/:id/characters` – body: `{ name, ruleset? }`; create a character.
+- `GET /api/characters/:characterId` – fetch a character.
+- `PUT /api/characters/:characterId` – body: `{ name?, sheet_json? }`; update character.
+- `GET /api/campaigns/:id/settings` – get campaign settings (ruleset, invite code, settings JSON).
+- `PUT /api/campaigns/:id/settings` – GM only; body: `{ settings }`; update campaign settings.
+- `POST /api/campaigns/:id/invite/regenerate` – GM only; regenerate invite code if enabled.
+- `GET /api/ooc/messages` – list last 100 out‑of‑character messages.
+- `POST /api/ooc/messages` – body: `{ message }`; post an out‑of‑character message.
+
+### WebSockets
+
+Connect to the same host using WebSockets to receive live updates. The client connects with a `campaignId` query: `ws://host:port/?campaignId=<id>`.
+
+- For campaign chat/rolls, use the campaign ID.
+- For out‑of‑character chat, use `campaignId=ooc`.
+- Each message received is a JSON object with `type` (`message`, `roll`, `ooc`) and `data`.
+
+## DEV_AUTH and CI
+
+Continuous Integration sets `DEV_AUTH=true` so tests can run without Google authentication. When `DEV_AUTH=true`, the backend treats every request as coming from a single dev user. Do not enable this in production.
+
+## CI
+
+GitHub Actions run on each push. The workflow installs dependencies, builds the client and server, and runs tests in `test.js` using DEV_AUTH. Keep the build and test green by ensuring all routes and WebSocket operations remain functional.
