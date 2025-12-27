@@ -19,6 +19,11 @@ const db = new Database('data/app.sqlite');
 db.pragma('journal_mode = WAL');
 module.exports.db = db;
 app.use(require('./routes/characters'));
+try y{{
+  db.exec('ALTER TABLE campaigns ADD COLUMN settings_json TEXT');
+} catch (e) {}
+app.use(require('./routes/settings'));
+app.use(require('./routes/ooc'));
 
 
 // Create tables
@@ -254,3 +259,17 @@ if (require.main === module) {
 }
 
 module.exports = { app, server, db };
+
+
+// module.broadcastToCampaign.broadcastToCampaign = broadcastToCampaign;
+// 
+try {
+  db.exec('ALTER TABLE campaigns ADD COLUMN settings_json TEXT');
+} catch (e) {}
+app.use(require('./routes/settings'));
+app.use(require('./routes/ooc'));
+module.exports.broadcastToCampaign = broadcastToCampaign;
+
+module.exports.broadcastToCampaign = broadcastToCampaign;
+
+
