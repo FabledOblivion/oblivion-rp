@@ -8,7 +8,7 @@ const http = require('http');
 const app = express();
 app.use(express.json());
 app.use(cookieParser());
-app.use(require('./routes/characters'));
+// app.use(require('./routes/characters'));
 
 
 const port = process.env.PORT || 3000;
@@ -17,6 +17,9 @@ const clientId = process.env.GOOGLE_CLIENT_ID || '';
 
 const db = new Database('data/app.sqlite');
 db.pragma('journal_mode = WAL');
+module.exports.db = db;
+app.use(require('./routes/characters'));
+
 
 // Create tables
 (db.exec(`
