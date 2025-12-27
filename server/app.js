@@ -10,7 +10,6 @@ app.use(express.json());
 app.use(cookieParser());
 // app.use(require('./routes/characters'));
 
-
 const port = process.env.PORT || 3000;
 const devAuth = process.env.DEV_AUTH === 'true';
 const clientId = process.env.GOOGLE_CLIENT_ID || '';
@@ -19,12 +18,14 @@ const db = new Database('data/app.sqlite');
 db.pragma('journal_mode = WAL');
 module.exports.db = db;
 app.use(require('./routes/characters'));
-try y{{
-  db.exec('ALTER TABLE campaigns ADD COLUMN settings_json TEXT');
-} catch (e) {}
+// Add settings_json column if not present and mount new routes
+try {
+  db.exec("ALTER TABLE campaigns ADD COLUMN settings_json TEXT");
+} catch (e) {
+  // column may already exist
+}
 app.use(require('./routes/settings'));
 app.use(require('./routes/ooc'));
-
 
 // Create tables
 (db.exec(`
@@ -36,7 +37,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
   description TEXT,
   ruleset TEXT,
   owner_id TEXT,
-  invite_code TEXT
+  invite_code TEXT,
+  settings_json TEXT
 );
 CREATE TABLE IF NOT EXISTS campaign_members (
   campaign_id TEXT,
@@ -140,8 +142,8 @@ app.post('/api/campaigns', authenticate, (req, res) => {
   const { name, description = '', ruleset = 'custom' } = req.body;
   const id = 'camp_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
   const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-  db.prepare('INSERT INTO campaigns (id, name, description, ruleset, owner_id, invite_code) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, name, description, ruleset, req.user.id, inviteCode);
+  db.prepare('INSERT INTO campaigns (id, name, description, ruleset, owner_id, invite_code, settings_json) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, name, description, ruleset, req.user.id, inviteCode, '{}');
   db.prepare('INSERT INTO campaign_members (campaign_id, user_id, role) VALUES (?, ?, ?)')
     .run(id, req.user.id, 'GM');
   res.json({ id, name, description, ruleset, owner_id: req.user.id, invite_code: inviteCode });
@@ -259,17 +261,5 @@ if (require.main === module) {
 }
 
 module.exports = { app, server, db };
-
-
-// module.broadcastToCampaign.broadcastToCampaign = broadcastToCampaign;
-// 
-try {
-  db.exec('ALTER TABLE campaigns ADD COLUMN settings_json TEXT');
-} catch (e) {}
-app.use(require('./routes/settings'));
-app.use(require('./routes/ooc'));
+// export broadcaster for routes
 module.exports.broadcastToCampaign = broadcastToCampaign;
-
-module.exports.broadcastToCampaign = broadcastToCampaign;
-
-
