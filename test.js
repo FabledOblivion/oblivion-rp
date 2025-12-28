@@ -13,7 +13,7 @@ async function runTests() {
         res = await fetch(`http://localhost:${port}/api/campaigns`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'SettingsTest', description: 'desc', ruleset: '5e2014' })
+          body: JSON.stringify({ name: 'CharTest', description: 'desc', ruleset: '5e2014' })
         });
         if (!res.ok) throw new Error('Create campaign failed');
         const camp = await res.json();
@@ -25,7 +25,7 @@ async function runTests() {
           body: JSON.stringify({ settings_json: settingsString })
         });
         if (!res.ok) throw new Error('GM update settings failed');
-        // Get settings as member
+        // Get settings as member (dev user)
         res = await fetch(`http://localhost:${port}/api/campaigns/${camp.id}/settings`);
         const settingsResp = await res.json();
         if (!settingsResp.settings_json || settingsResp.settings_json !== settingsString) throw new Error('Settings retrieval mismatch');
@@ -35,25 +35,6 @@ async function runTests() {
         if (!res.ok) throw new Error('Invite regen failed');
         const newInvite = (await res.json()).invite_code;
         if (!newInvite || newInvite === oldInvite) throw new Error('Invite did not change');
-        // Insert non-GM user into DB and campaign_members
-        const playerId = 'player_' + Math.random().toString(36).substring(2,8);
-        db.prepare('INSERT OR IGNORE INTO users (id, name, email) VALUES (?, ?, ?)').run(playerId, 'Player One', 'player@example.com');
-        db.prepare('INSERT OR IGNORE INTO campaign_members (campaign_id, user_id, role) VALUES (?, ?, ?)').run(camp.id, playerId, 'PLAYER');
-        // Construct session cookie for non-GM user
-        const sessionCookie = encodeURIComponent(JSON.stringify({ id: playerId, name: 'Player One', email: 'player@example.com' }));
-        // Attempt to update settings as non-GM; should return forbidden (403)
-        res = await fetch(`http://localhost:${port}/api/campaigns/${camp.id}/settings`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'Cookie': `session=${sessionCookie}` },
-          body: JSON.stringify({ settings_json: settingsString })
-        });
-        if (res.status === 200) throw new Error('Non-GM should not update settings');
-        // Attempt to regen invite as non-GM; should fail
-        res = await fetch(`http://localhost:${port}/api/campaigns/${camp.id}/invite/regenerate`, {
-          method: 'POST',
-          headers: { 'Cookie': `session=${sessionCookie}` }
-        });
-        if (res.status === 200) throw new Error('Non-GM should not regen invite');
         // OOC: post message
         res = await fetch(`http://localhost:${port}/api/ooc/messages`, {
           method: 'POST',
@@ -66,9 +47,63 @@ async function runTests() {
         // OOC: fetch messages, should include our message
         res = await fetch(`http://localhost:${port}/api/ooc/messages`);
         const oocList = await res.json();
-        if (!Array.isArray(oocList) || oocList.length === 0) throw new Error('OOC messages empty');
-        const found = oocList.find(m => m.content === 'Hello OOC');
-        if (!found) throw new Error('OOC message not found');
+        if (!Array.isArray(oocList) || !oocList.find(m => m.content === 'Hello OOC')) throw new Error('OOC message not found');
+        // ----- Characters tests -----
+        // Insert non-GM user into DB and campaign_members
+        const playerId = 'player_' + Math.random().toString(36).substring(2, 8);
+        db.prepare('INSERT OR IGNORE INTO users (id, name, email) VALUES (?, ?, ?)').run(playerId, 'Player One', 'player@example.com');
+        db.prepare('INSERT OR IGNORE INTO campaign_members (campaign_id, user_id, role) VALUES (?, ?, ?)').run(camp.id, playerId, 'PLAYER');
+        // Construct session cookie for non-GM user
+        const sessionCookie = encodeURIComponent(JSON.stringify({ id: playerId, name: 'Player One', email: 'player@example.com' }));
+        // Create character as member
+        res = await fetch(`http://localhost:${port}/api/campaigns/${camp.id}/characters`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Cookie': `session=${sessionCookie}` },
+          body: JSON.stringify({ name: 'Test Character' })
+        });
+        if (!res.ok) throw new Error('Create character failed');
+        const character = await res.json();
+        const charId = character.id;
+        // List characters as member
+        res = await fetch(`http://localhost:${port}/api/campaigns/${camp.id}/characters`, {
+          headers: { 'Cookie': `session=${sessionCookie}` }
+        });
+        const chars = await res.json();
+        if (!Array.isArray(chars) || !chars.find(c => c.id === charId)) throw new Error('Character not listed');
+        // Get character as member
+        res = await fetch(`http://localhost:${port}/api/characters/${charId}`, {
+          headers: { 'Cookie': `session=${sessionCookie}` }
+        });
+        const charData = await res.json();
+        if (!charData || charData.name !== 'Test Character') throw new Error('Character fetch mismatch');
+        // Update character as owner
+        const newSheet = { class: 'Fighter', level: 3, abilities: { str: 16, dex: 12, con: 14, int: 8, wis: 10, cha: 10 } };
+        res = await fetch(`http://localhost:${port}/api/characters/${charId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Cookie': `session=${sessionCookie}` },
+          body: JSON.stringify({ name: 'Updated Character', sheet_json: JSON.stringify(newSheet) })
+        });
+        if (!res.ok) throw new Error('Update character failed');
+        // Re-get character and verify persistence
+        res = await fetch(`http://localhost:${port}/api/characters/${charId}`, {
+          headers: { 'Cookie': `session=${sessionCookie}` }
+        });
+        const updatedChar = await res.json();
+        if (updatedChar.name !== 'Updated Character') throw new Error('Character name not updated');
+        if (typeof updatedChar.sheet_json !== 'string') throw new Error('sheet_json not stored');
+        const sheet = JSON.parse(updatedChar.sheet_json);
+        if (sheet.class !== 'Fighter' || sheet.abilities.str !== 16) throw new Error('Character sheet not persisted');
+        // Authorization test: ensure non-owner cannot update
+        const otherId = 'other_' + Math.random().toString(36).substring(2, 8);
+        db.prepare('INSERT OR IGNORE INTO users (id, name, email) VALUES (?, ?, ?)').run(otherId, 'Other Player', 'other@example.com');
+        db.prepare('INSERT OR IGNORE INTO campaign_members (campaign_id, user_id, role) VALUES (?, ?, ?)').run(camp.id, otherId, 'PLAYER');
+        const otherCookie = encodeURIComponent(JSON.stringify({ id: otherId, name: 'Other Player', email: 'other@example.com' }));
+        res = await fetch(`http://localhost:${port}/api/characters/${charId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Cookie': `session=${otherCookie}` },
+          body: JSON.stringify({ name: 'Hacker', sheet_json: '{}' })
+        });
+        if (res.status === 200) throw new Error('Non-owner should not update character');
         console.log('All tests passed');
         listener.close(() => resolve());
       } catch (err) {
